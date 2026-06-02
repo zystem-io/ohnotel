@@ -1,0 +1,137 @@
+[package]
+name = "ohnotel"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["otel", "console"]
+periodic = ["dep:tokio", "dep:log"]
+console = ["periodic", "dep:num-traits"]
+otel = ["periodic", "dep:opentelemetry-proto", "dep:tonic", "dep:num-traits", "dep:libc"]
+serde = ["dep:serde", "opentelemetry-proto?/with-serde"]
+
+[dependencies]
+arc-swap = "1"
+hashbrown = "0.17"
+libc = { version = "0.2", optional = true }
+log = { version = "0.4", optional = true }
+num-traits = { version = "0.2", optional = true }
+opentelemetry-proto = { version = "0.32.0", features = ["metrics", "gen-tonic"], optional = true }
+ordered-float = "5"
+serde = { version = "1", features = ["derive"], optional = true }
+smallvec = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "io-std", "io-util"], optional = true }
+tonic = { version = "0.14", default-features = false, features = ["channel", "codegen"], optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.8.2", features = ["html_reports"] }
+opentelemetry = { version = "0.32", features = ["metrics"] }
+opentelemetry_sdk = { version = "0.32", features = ["metrics", "experimental_metrics_custom_reader"] }
+rand = "0.10"
+testresult = "0.4"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+tonic = { version = "0.14", features = ["server", "router"] }
+
+[[bench]]
+name = "histogram"
+harness = false
+
+[profile.bench-lto]
+inherits = "bench"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+
+[lints]
+clippy.allow_attributes = "deny"
+clippy.as_pointer_underscore = "deny"
+
+clippy.as_underscore = "deny"
+clippy.borrow_as_ptr = "deny"
+clippy.cast_lossless = "deny"
+clippy.cast_possible_truncation = "deny"
+clippy.cast_possible_wrap = "deny"
+clippy.cast_ptr_alignment = "deny"
+clippy.cast_sign_loss = "deny"
+clippy.clone_on_ref_ptr = "deny"
+clippy.cloned_instead_of_copied = "deny"
+clippy.comparison_chain = "deny"
+clippy.debug_assert_with_mut_call = "deny"
+clippy.elidable_lifetime_names = "deny"
+clippy.equatable_if_let = "deny"
+clippy.explicit_into_iter_loop = "deny"
+clippy.explicit_iter_loop = "deny"
+clippy.filter_map_next = "deny"
+clippy.flat_map_option = "deny"
+clippy.format_collect = "deny"
+clippy.format_push_string = "deny"
+clippy.ignored_unit_patterns = "deny"
+clippy.implicit_clone = "deny"
+clippy.inefficient_to_string = "deny"
+clippy.items_after_statements = "deny"
+clippy.iter_on_empty_collections = "deny"
+clippy.iter_on_single_items = "deny"
+clippy.iter_with_drain = "deny"
+clippy.manual_is_variant_and = "deny"
+clippy.manual_let_else = "deny"
+clippy.manual_midpoint = "deny"
+clippy.match_same_arms = "deny"
+clippy.module_name_repetitions = "deny"
+clippy.multiple_inherent_impl = "deny"
+clippy.missing_const_for_fn = "deny"
+clippy.needless_pass_by_value = "deny"
+clippy.or_fun_call = "deny"
+clippy.rc_buffer = "deny"
+clippy.redundant_closure_for_method_calls = "deny"
+clippy.redundant_pub_crate = "deny"
+clippy.redundant_test_prefix = "deny"
+clippy.ref_option = "deny"
+clippy.ref_option_ref = "deny"
+clippy.str_to_string = "deny"
+clippy.suboptimal_flops = "deny"
+clippy.uninlined_format_args = "allow"
+clippy.unnecessary_self_imports = "deny"
+clippy.unneeded_field_pattern = "deny"
+clippy.unnested_or_patterns = "deny"
+clippy.unused_trait_names = "deny"
+clippy.unwrap_used = "deny"
+
+rust.unfulfilled_lint_expectations = "deny"
+
+clippy.dbg_macro = "deny"
+clippy.todo = "deny"
+clippy.unimplemented = "deny"
+clippy.print_stdout = "deny"
+clippy.print_stderr = "deny"
+
+rust.missing_debug_implementations = "deny"
+rust.unused_lifetimes = "deny"
+rust.unused_macro_rules = "deny"
+rust.unused_qualifications = "deny"
+
+clippy.await_holding_lock = "deny"
+clippy.await_holding_refcell_ref = "deny"
+clippy.large_futures = "deny"
+clippy.large_stack_arrays = "deny"
+clippy.large_stack_frames = "warn"
+
+rust.trivial_casts = "deny"
+rust.trivial_numeric_casts = "deny"
+rust.unused_results = "deny"
+
+rustdoc.broken_intra_doc_links = "deny"
+rustdoc.private_intra_doc_links = "deny"
+rustdoc.invalid_codeblock_attributes = "deny"
+rustdoc.invalid_rust_codeblocks = "deny"
+rustdoc.bare_urls = "deny"
+rustdoc.unescaped_backticks = "deny"
+
+clippy.ignore_without_reason = "deny"
+clippy.should_panic_without_expect = "deny"
+
+clippy.wildcard_dependencies = "deny"
+clippy.multiple_crate_versions = "warn"
+clippy.negative_feature_names = "deny"
+clippy.redundant_feature_names = "deny"

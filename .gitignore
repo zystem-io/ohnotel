@@ -1,0 +1,9 @@
+/target
+.direnv
+result
+result-*
+.idea
+.DS_Store
+.venv
+.env
+rustc-ice-*
