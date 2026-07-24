@@ -52,11 +52,16 @@ impl Collector {
     }
 }
 
-impl collect::Collector for Collector {
-    type Wire = proto::Metric;
-
-    fn register(&self, observer: BoxedOtelProtoObserver) {
-        self.add_boxed_observer(observer);
+impl<Src, T, S, A> collect::AddSource<Src> for Collector
+where
+    Src: MetricSource<Measure = T, Hasher = S, Cell = A>,
+    T: atomic::Measure + Send + Sync + 'static,
+    S: BuildHasher + Clone + Send + Sync + 'static,
+    A: atomic::Record<T>,
+    dto::Series<A::Snapshot, S>: dto::IntoWire<proto::Metric, Error = Error>,
+{
+    fn add_source(&self, source: &Src, mode: Mode) -> Result<(), Error> {
+        collect::AddSource::add_source(&self.inner, source, mode)
     }
 }
 

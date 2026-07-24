@@ -268,11 +268,18 @@ impl<W: Send + 'static> Collector<W> {
     }
 }
 
-impl<W: Send + 'static> collect::Collector for Collector<W> {
-    type Wire = W;
-
-    fn register(&self, observer: BoxedDynObserver<W>) {
-        self.add_boxed_observer(observer);
+impl<W, Src, T, S, A> collect::AddSource<Src> for Collector<W>
+where
+    W: Send + 'static,
+    Src: MetricSource<Measure = T, Hasher = S, Cell = A>,
+    T: atomic::Measure + Send + Sync + 'static,
+    S: BuildHasher + Clone + Send + Sync + 'static,
+    A: atomic::Record<T>,
+    dto::Series<A::Snapshot, S>: dto::IntoWire<W, Error = Error>,
+{
+    fn add_source(&self, source: &Src, mode: Mode) -> Result<(), Error> {
+        self.add_boxed_observer(Box::new(SyncObserver::new(source, mode)?));
+        Ok(())
     }
 }
 

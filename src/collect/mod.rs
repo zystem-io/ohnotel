@@ -3,58 +3,33 @@ pub mod periodic;
 #[cfg(feature = "periodic")]
 mod timer;
 
+use crate::Error;
 use crate::model::NameIdentity;
-use crate::observe::{DynObserver, MetricSource, Mode, SyncObserver};
-use crate::{Error, atomic, dto};
+use crate::observe::{DynObserver, MetricSource, Mode};
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
-use std::hash::BuildHasher;
 use std::sync::{Arc, Mutex};
 
 pub type BoxedDynObserver<W> = Box<dyn DynObserver<W, Error> + Send>;
 
-pub trait Collector: Send + Sync + 'static {
-    type Wire: Send + 'static;
-
-    fn register(&self, observer: BoxedDynObserver<Self::Wire>);
-}
-
-pub trait ObserverFactory<C: Collector> {
-    fn build(&self, collector: &C) -> Result<BoxedDynObserver<C::Wire>, Error>;
-}
-
-#[derive(Debug)]
-pub struct SyncObserverFactory<'a, Src> {
-    source: &'a Src,
-    mode: Mode,
-}
-
-impl<'a, Src> SyncObserverFactory<'a, Src> {
-    pub const fn new(source: &'a Src, mode: Mode) -> Self {
-        Self { source, mode }
-    }
-}
-
-impl<C, Src, T, S, A> ObserverFactory<C> for SyncObserverFactory<'_, Src>
-where
-    C: Collector,
-    Src: MetricSource<Measure = T, Hasher = S, Cell = A>,
-    T: atomic::Measure + Send + Sync + 'static,
-    S: BuildHasher + Clone + Send + Sync + 'static,
-    A: atomic::Record<T>,
-    dto::Series<A::Snapshot, S>: dto::IntoWire<C::Wire, Error = Error>,
-{
-    fn build(&self, _collector: &C) -> Result<BoxedDynObserver<C::Wire>, Error> {
-        Ok(Box::new(SyncObserver::new(self.source, self.mode)?))
-    }
+/// A collector that can take part in a [`Collection`].
+///
+/// [`Collection::add`] hands every collector in the tuple the source together
+/// with the observation mode requested at registration. Push-based collectors
+/// build an observer reporting in that mode; pull-based collectors (e.g.
+/// Prometheus) keep a handle to the source itself and read its current state
+/// on demand -- the mode only describes how push observers report, so they
+/// ignore it.
+pub trait AddSource<Src>: Send + Sync + 'static {
+    fn add_source(&self, source: &Src, mode: Mode) -> Result<(), Error>;
 }
 
 pub trait CollectorTuple {
     const LEN: usize;
 }
 
-pub trait RegisterAll<F> {
-    fn register_all(&self, factory: &F) -> Result<(), Error>;
+pub trait RegisterAll<Src> {
+    fn register_all(&self, source: &Src, mode: Mode) -> Result<(), Error>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -98,20 +73,12 @@ impl<C> Collection<C> {
         &self.collectors
     }
 
-    pub fn register<F>(&self, factory: &F) -> Result<(), Error>
-    where
-        C: RegisterAll<F>,
-    {
-        self.collectors.register_all(factory)
-    }
-
     /// Adds a new collector. If one has already been added before, the clone of the previous will
     /// be returned. Adding the same source with different mode will return an error.
     pub fn add<Src>(&self, source: Src, mode: Mode) -> Result<Src, Error>
     where
-        C: CollectorTuple,
+        C: CollectorTuple + RegisterAll<Src>,
         Src: MetricSource + Clone + Send + Sync + 'static,
-        for<'a> C: RegisterAll<SyncObserverFactory<'a, Src>>,
     {
         if mode == Mode::Destructive && C::LEN != 1 {
             return Err(Error::DestructiveWithMultipleCollectors);
@@ -132,7 +99,7 @@ impl<C> Collection<C> {
             }
         }
 
-        self.register(&SyncObserverFactory::new(&source, mode))?;
+        self.collectors.register_all(&source, mode)?;
         let _ = registry.insert(
             key,
             RegistryEntry {
@@ -146,26 +113,16 @@ impl<C> Collection<C> {
 
 macro_rules! impl_collector_tuple {
     ($($name:ident . $idx:tt),+ $(,)?) => {
-        impl<$($name),+> CollectorTuple for ($($name,)+)
-        where
-            $($name: Collector,)+
-        {
+        impl<$($name),+> CollectorTuple for ($($name,)+) {
             const LEN: usize = [$(stringify!($name)),+].len();
         }
 
-        impl<Fact, $($name),+> RegisterAll<Fact> for ($($name,)+)
+        impl<Src, $($name),+> RegisterAll<Src> for ($($name,)+)
         where
-            $($name: Collector,)+
-            $(Fact: ObserverFactory<$name>,)+
+            $($name: AddSource<Src>,)+
         {
-            fn register_all(&self, factory: &Fact) -> Result<(), Error> {
-                $(
-                    let observer = <Fact as ObserverFactory<$name>>::build(
-                        factory,
-                        &self.$idx,
-                    )?;
-                    self.$idx.register(observer);
-                )+
+            fn register_all(&self, source: &Src, mode: Mode) -> Result<(), Error> {
+                $(self.$idx.add_source(source, mode)?;)+
                 Ok(())
             }
         }
@@ -184,11 +141,15 @@ impl_collector_tuple!(A.0, B.1, C.2, D.3, E.4, F.5, G.6, H.7);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::atomic;
     use crate::atomic::histogram::Snapshot;
+    use crate::dto;
     use crate::metric::tests::ID;
     use crate::metric::{Counter, Gauge, Histogram};
     use crate::model::KeyValue;
+    use crate::observe::SyncObserver;
     use std::fmt::Write as _;
+    use std::hash::BuildHasher;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
 
@@ -318,11 +279,21 @@ mod tests {
         }
     }
 
-    impl<W: Send + 'static> Collector for InMemoryCollector<W> {
-        type Wire = W;
-
-        fn register(&self, observer: BoxedDynObserver<W>) {
-            self.observers.lock().expect("poisoned").push(observer);
+    impl<W, Src, T, S, A> AddSource<Src> for InMemoryCollector<W>
+    where
+        W: Send + 'static,
+        Src: MetricSource<Measure = T, Hasher = S, Cell = A>,
+        T: atomic::Measure + Send + Sync + 'static,
+        S: BuildHasher + Clone + Send + Sync + 'static,
+        A: atomic::Record<T>,
+        dto::Series<A::Snapshot, S>: dto::IntoWire<W, Error = Error>,
+    {
+        fn add_source(&self, source: &Src, mode: Mode) -> Result<(), Error> {
+            self.observers
+                .lock()
+                .expect("poisoned")
+                .push(Box::new(SyncObserver::new(source, mode)?));
+            Ok(())
         }
     }
 
@@ -413,75 +384,6 @@ mod tests {
             .add(Counter::<u64>::new(ID), Mode::Destructive)
             .expect("single-collector destructive should succeed");
         assert_eq!(collectors.collectors().0.len(), 1);
-    }
-
-    struct ConstObserver<W> {
-        wire: W,
-    }
-
-    impl<W: Clone + Send + Sync + 'static> DynObserver<W, Error> for ConstObserver<W> {
-        fn observe(&mut self, _ts: SystemTime) {}
-        fn reset(&mut self, _start_time: SystemTime) {}
-        fn export(&mut self, _align: Option<Duration>) -> Result<Option<W>, Error> {
-            Ok(Some(self.wire.clone()))
-        }
-    }
-
-    struct ConstFactory;
-
-    impl ObserverFactory<InMemoryCollector<UnsignedWire>> for ConstFactory {
-        fn build(
-            &self,
-            _collector: &InMemoryCollector<UnsignedWire>,
-        ) -> Result<BoxedDynObserver<UnsignedWire>, Error> {
-            Ok(Box::new(ConstObserver {
-                wire: UnsignedWire { total: 42 },
-            }))
-        }
-    }
-
-    impl ObserverFactory<InMemoryCollector<TextWire>> for ConstFactory {
-        fn build(
-            &self,
-            _collector: &InMemoryCollector<TextWire>,
-        ) -> Result<BoxedDynObserver<TextWire>, Error> {
-            Ok(Box::new(ConstObserver {
-                wire: TextWire {
-                    text: "constant".to_owned(),
-                },
-            }))
-        }
-    }
-
-    impl ObserverFactory<InMemoryCollector<HistogramWire>> for ConstFactory {
-        fn build(
-            &self,
-            _collector: &InMemoryCollector<HistogramWire>,
-        ) -> Result<BoxedDynObserver<HistogramWire>, Error> {
-            Ok(Box::new(ConstObserver {
-                wire: HistogramWire { count: 7 },
-            }))
-        }
-    }
-
-    #[test]
-    fn register_custom_factory_per_wire() {
-        let collectors = collection();
-        collectors
-            .register(&ConstFactory)
-            .expect("custom factory registration failed");
-
-        let ts = SystemTime::now();
-        let (unsigned, text, hist) = collectors.collectors();
-
-        assert_eq!(unsigned.drain_export(ts), vec![UnsignedWire { total: 42 }]);
-        assert_eq!(
-            text.drain_export(ts),
-            vec![TextWire {
-                text: "constant".to_owned(),
-            }],
-        );
-        assert_eq!(hist.drain_export(ts), vec![HistogramWire { count: 7 }]);
     }
 
     #[test]
