@@ -8,6 +8,7 @@ default = ["otel", "console"]
 periodic = ["dep:tokio", "dep:log"]
 console = ["periodic", "dep:num-traits"]
 otel = ["periodic", "dep:opentelemetry-proto", "dep:tonic", "dep:num-traits", "dep:libc"]
+prometheus = ["dep:num-traits"]
 serde = ["dep:serde", "opentelemetry-proto?/with-serde"]
 
 [dependencies]

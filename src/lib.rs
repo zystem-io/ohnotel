@@ -26,6 +26,8 @@ pub mod model;
 pub mod observe;
 #[cfg(feature = "otel")]
 pub mod otel;
+#[cfg(feature = "prometheus")]
+pub mod prometheus;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -78,6 +80,10 @@ pub enum Error {
         rejected_data_points: i64,
         error_message: String,
     },
+
+    #[cfg(feature = "prometheus")]
+    #[error(transparent)]
+    Prometheus(#[from] prometheus::Error),
 
     #[error("custom error: {0}")]
     Custom(String),
