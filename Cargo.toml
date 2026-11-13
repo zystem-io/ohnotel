@@ -17,7 +17,7 @@ hashbrown = "0.17"
 libc = { version = "0.2", optional = true }
 log = { version = "0.4", optional = true }
 num-traits = { version = "0.2", optional = true }
-opentelemetry-proto = { version = "0.32.0", features = ["metrics", "gen-tonic"], optional = true }
+opentelemetry-proto = { version = "0.33.0", features = ["metrics", "gen-tonic"], optional = true }
 ordered-float = "5"
 serde = { version = "1", features = ["derive"], optional = true }
 smallvec = "1"
@@ -27,8 +27,8 @@ tonic = { version = "0.14", default-features = false, features = ["channel", "co
 
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }
-opentelemetry = { version = "0.32", features = ["metrics"] }
-opentelemetry_sdk = { version = "0.32", features = ["metrics", "experimental_metrics_custom_reader"] }
+opentelemetry = { version = "0.33", features = ["metrics"] }
+opentelemetry_sdk = { version = "0.33", features = ["metrics", "experimental_metrics_custom_reader"] }
 rand = "0.10"
 testresult = "0.4"
 tokio = { version = "1", features = ["full"] }
